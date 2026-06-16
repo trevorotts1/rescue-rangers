@@ -8,6 +8,8 @@
 # It does NOT touch your Cloudflare account. Creating the tunnel is your
 # agent's job (that needs your API key, which never belongs on a client Mac).
 #
+# No Python required — uses /usr/libexec/PlistBuddy (built into macOS).
+#
 # RUN IT (do NOT put sudo in front — the script asks for the password itself):
 #     bash rescue-setup-part1.sh
 # ==========================================================================
@@ -102,12 +104,36 @@ fi
 # --- 9) Track detection ---------------------------------------------------
 echo
 echo "----- TRACK DETECTION -----"
+
+# Helper: decode a JWT token's payload and extract the "a" (account) field.
+# Uses only shell + base64 + sed — no Python, no jq.
+_decode_jwt_account() {
+  local t="${1:-}"
+  [ -z "$t" ] && return 1
+  # Extract the payload (middle segment of JWT)
+  local payload
+  payload="${t#*.}"
+  payload="${payload%.*}"
+  # Add base64 padding
+  local pad rem=$(( ${#payload} % 4 ))
+  [ "$rem" -ne 0 ] && pad=$(( 4 - rem )) || pad=0
+  while [ "$pad" -gt 0 ]; do payload="${payload}="; pad=$((pad-1)); done
+  # Decode and extract the "a" field
+  echo "$payload" | base64 -d 2>/dev/null | sed -n 's/.*"a" *: *"\([^"]*\)".*/\1/p'
+}
+
 if sudo launchctl list 2>/dev/null | grep -q com.cloudflare.cloudflared && [ -f "${CFPLIST}" ]; then
-  ACCT="$(sudo python3 -c 'import plistlib,base64,json
-d=plistlib.load(open("/Library/LaunchDaemons/com.cloudflare.cloudflared.plist","rb"))
-a=d.get("ProgramArguments",[])
-t=a[a.index("--token")+1] if "--token" in a else ""
-print(json.loads(base64.b64decode(t+"=="*(-len(t)%4)))["a"]) if t else print("none")' 2>/dev/null)"
+  # Extract the token from the plist with PlistBuddy
+  ACCT=""
+  ARGS="$(sudo /usr/libexec/PlistBuddy -c "Print :ProgramArguments" "${CFPLIST}" 2>/dev/null || true)"
+  if [ -n "$ARGS" ]; then
+    # Find the --token value
+    CT=$(echo "$ARGS" | awk '/--token/{getline; gsub(/^[ \t]+/,""); print}')
+    CT="${CT%"${CT##*[![:space:]]}"}"
+    if [ -n "$CT" ]; then
+      ACCT="$(_decode_jwt_account "$CT")"
+    fi
+  fi
   if [ "${ACCT}" = "${ZHC_ACCOUNT}" ]; then
     echo "  TRACK A (re-run): a cloudflared in YOUR account is already here."
   elif [ -n "${ACCT}" ] && [ "${ACCT}" != "none" ]; then
