@@ -56,6 +56,14 @@ fi
 
 # --- Install / write the connector ----------------------------------------
 if [ "${TRACK}" = "A" ]; then
+  # If our connector is already here (a re-run, e.g. after a bad token), remove
+  # it first. cloudflared refuses to install over an existing service, so a
+  # re-run would otherwise fail with "service is already installed".
+  if [ -f "${CFPLIST}" ]; then
+    echo "  ... existing connector found, removing it first for a clean re-run ..."
+    sudo "${CFBIN}" service uninstall 2>/dev/null
+    sleep 2
+  fi
   echo "  ... installing connector (Track A) ..."
   sudo "${CFBIN}" service install "${TOKEN}"
   PLIST="${CFPLIST}"
@@ -129,10 +137,17 @@ echo
 echo "  ... verifying (waiting 8s for connections) ..."
 sleep 8
 LOG="/Library/Logs/${LABEL}.err.log"
-sudo grep -i "Registered tunnel connection" "${LOG}" 2>/dev/null | tail -4
-if sudo grep -i "Registered tunnel connection" "${LOG}" 2>/dev/null | tail -4 | grep -q "protocol=http2"; then
+RECENT="$(sudo tail -25 "${LOG}" 2>/dev/null)"
+echo "${RECENT}" | grep -i "Registered tunnel connection" | tail -4
+if echo "${RECENT}" | grep -q "protocol=http2"; then
   echo
   echo "PASS: connector is up on HTTP/2 and hardened. Track ${TRACK}."
+elif echo "${RECENT}" | grep -qi "Invalid tunnel secret"; then
+  echo
+  echo "FAIL: bad tunnel token. The server reports 'Unauthorized: Invalid tunnel secret'."
+  echo "This is NOT a Mac problem and re-running will not help with this same token."
+  echo "Ask your agent for a fresh, genuine token for THIS tunnel (pulled from the"
+  echo "Cloudflare API, not reconstructed), then run this Part 2 line again with it."
 else
   echo
   echo "CHECK: did not see protocol=http2 on the live connections yet. Wait 15s, then:"

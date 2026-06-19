@@ -47,8 +47,8 @@ Run the Part 2 line again. If it still shows `quic`, do Step F0 of the full Fiel
 
 ## Files in this repo
 - `rescue-setup-part1.sh` — local prep + installs + track detection (runs on client's Mac)
-- `rescue-install-part2.sh` — connector install + hardening (runs on client's Mac, takes the token). As of 2026-06-18 it **auto-retries** the launchd reload (`bootout`+`bootstrap`) if the first attempt hits the `Bootstrap failed: 5: Input/output error` race.
+- `rescue-install-part2.sh` — connector install + hardening (runs on client's Mac, takes the token). As of 2026-06-19 it **auto-uninstalls** an existing connector on Track A re-runs (so re-installs aren't blocked) and **detects "Invalid tunnel secret"** to report a bad token clearly. As of 2026-06-18 it also **auto-retries** the launchd reload (`bootout`+`bootstrap`) if the first attempt hits the `Bootstrap failed: 5: Input/output error` race.
 
 ---
 
-_Last updated: 2026-06-18 — Part 2 auto-retries the launchd reload to fix the bootstrap I/O race; see [CHANGELOG.md](CHANGELOG.md). Field guide: v20._
+_Last updated: 2026-06-19 — Part 2 now auto-uninstalls on Track A re-runs and detects bad tokens; see [CHANGELOG.md](CHANGELOG.md). Field guide: v20._
