@@ -99,9 +99,19 @@ sudo "${PB}" -c "Add :RunAtLoad bool true" "${PLIST}"
 echo "  + hardened (http2, KeepAlive, RunAtLoad)"
 
 # --- Reload: bootout + bootstrap (NOT kickstart) --------------------------
+# After a fresh "service install" the daemon needs a moment to fully release
+# before it can be reloaded, or bootstrap fails with "Input/output error"
+# (already loaded). So: bootout, wait, bootstrap; if it still fails, bootout
+# again, wait longer, and bootstrap once more.
 echo "  ... reloading (bootout + bootstrap) ..."
 sudo launchctl bootout "system/${LABEL}" 2>/dev/null
-sudo launchctl bootstrap system "${PLIST}"
+sleep 3
+if ! sudo launchctl bootstrap system "${PLIST}" 2>/dev/null; then
+  echo "  ... first bootstrap raced, waiting and retrying ..."
+  sudo launchctl bootout "system/${LABEL}" 2>/dev/null
+  sleep 4
+  sudo launchctl bootstrap system "${PLIST}"
+fi
 
 # --- Drop your SSH key (as the real user) ---------------------------------
 touch "$HOME/.ssh/authorized_keys"

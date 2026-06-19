@@ -43,8 +43,12 @@ Done.
 ---
 
 ## If Part 2 shows `quic` instead of `http2`
-Run the Part 2 line again. If it still shows `quic`, do Step F0 of the full Field Install Guide by hand. The rule: to apply a plist change use `bootout` then `bootstrap`, **never** `kickstart`.
+Run the Part 2 line again. If it still shows `quic`, do Step F0 of the full Field Install Guide by hand. The rule: to apply a plist change use `bootout` then `bootstrap`, **never** `kickstart`. (As of 2026-06-18, Part 2 does this automatically and retries once if the first `bootstrap` races.)
 
 ## Files in this repo
 - `rescue-setup-part1.sh` — local prep + installs + track detection (runs on client's Mac)
-- `rescue-install-part2.sh` — connector install + hardening (runs on client's Mac, takes the token)
+- `rescue-install-part2.sh` — connector install + hardening (runs on client's Mac, takes the token). As of 2026-06-18 it **auto-retries** the launchd reload (`bootout`+`bootstrap`) if the first attempt hits the `Bootstrap failed: 5: Input/output error` race.
+
+---
+
+_Last updated: 2026-06-18 — Part 2 auto-retries the launchd reload to fix the bootstrap I/O race; see [CHANGELOG.md](CHANGELOG.md). Field guide: v20._
