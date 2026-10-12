@@ -1,6 +1,6 @@
 #!/bin/bash
 # ==========================================================================
-# rescue-install.sh   v3.0   Rescue Rangers install (Mac only, ONE script)
+# rescue-install.sh   v3.1   Rescue Rangers install (Mac only, ONE script)
 # --------------------------------------------------------------------------
 # Replaces rescue-setup-part1.sh and rescue-install-part2.sh.
 #
@@ -33,7 +33,6 @@ CFPLIST=/Library/LaunchDaemons/com.cloudflare.cloudflared.plist
 WD_LABEL="com.blackceo.rescue-tunnel-watchdog"
 WD_PLIST="/Library/LaunchDaemons/${WD_LABEL}.plist"
 WD_RAW="https://raw.githubusercontent.com/trevorotts1/openclaw-onboarding/main/platform/mac/tunnel-hardening"
-NODE_MIN="22.22.3"
 WARNINGS=""
 warn() { WARNINGS="${WARNINGS}\n   - $1"; echo "  !  $1"; }
 
@@ -59,16 +58,18 @@ token_field() {
   if [ "$m" -ne 0 ]; then t="${t}$(printf '%*s' $((4 - m)) '' | tr ' ' '=')"; fi
   printf '%s' "$t" | base64 -D 2>/dev/null | sed -n "s/.*\"${k}\":\"\\([^\"]*\\)\".*/\\1/p"
 }
+# OpenClaw engines: node >=24.16.0 <25 || >=26.1.0
+node_ok() { { ver_ge "$1" "24.16.0" && ! ver_ge "$1" "25.0.0"; } || ver_ge "$1" "26.1.0"; }
 is_prerelease() { echo "$1" | grep -Eqi 'beta|alpha|rc|dev|canary|next|nightly|preview'; }
 plist_token() { sudo "$PB" -c "Print :ProgramArguments" "$1" 2>/dev/null | grep -Eo 'eyJ[A-Za-z0-9+/=_-]+' | head -1; }
 
 echo "=================================================="
-echo " Rescue Rangers install v3.0"
+echo " Rescue Rangers install v3.1"
 echo "=================================================="
 
 # === 1) Arguments and token (no changes made yet) ==========================
 if [ "$(uname -s)" != "Darwin" ]; then
-  echo "FAIL: Macs only. VPS and Contabo boxes use the VPS path in the walkthrough."; exit 1
+  echo "FAIL: Macs only. VPS and Contabo boxes use Phase V or Phase C of the guide."; exit 1
 fi
 if [ -z "$TOKEN" ] || [ -z "$SLUG" ]; then
   echo "FAIL: missing arguments. Usage: bash rescue-install.sh <TOKEN> <firstname-lastname>"; exit 1
@@ -104,7 +105,7 @@ STOP=""
 FV="$(fdesetup status 2>/dev/null | head -1)"
 echo "$FV" | grep -qi "FileVault is On" && STOP="${STOP}\n   - FileVault is ON. Turn it OFF in System Settings > Privacy & Security > FileVault."
 RL="$(sudo systemsetup -getremotelogin 2>/dev/null)"
-echo "$RL" | grep -qi ": On" || STOP="${STOP}\n   - Remote Login is not On."
+echo "$RL" | grep -qi ": On" || STOP="${STOP}\n   - Remote Login is not On. System Settings > General > Sharing > Remote Login ON."
 ME="$(whoami)"
 ALU="$(sudo defaults read /Library/Preferences/com.apple.loginwindow autoLoginUser 2>/dev/null || true)"
 if [ "$ALU" = "$ME" ] && sudo test -f /etc/kcpassword; then
@@ -113,19 +114,16 @@ else
   AUTOLOGIN="NOT SET"
   STOP="${STOP}\n   - Automatic Login is not set. System Settings > Users & Groups > Automatic login as ${ME}."
 fi
+if sudo head -c 1 "/Library/Application Support/com.apple.TCC/TCC.db" >/dev/null 2>&1; then FDA="granted"; else FDA="NOT granted (likely)"; fi
 if [ -n "$STOP" ]; then
+  [ "$FDA" = "granted" ] || STOP="${STOP}\n   - Full Disk Access for Terminal also looks missing. System Settings > Privacy & Security > Full Disk Access > Terminal ON, then Cmd+Q Terminal and reopen it."
   echo
   echo "STOPPED: fix these in System Settings, then run the SAME line again:"
   printf "%b\n" "$STOP"
   exit 2
 fi
 echo "  + FileVault off, Remote Login on, Automatic Login on"
-if sudo head -c 1 "/Library/Application Support/com.apple.TCC/TCC.db" >/dev/null 2>&1; then
-  FDA="granted"
-else
-  FDA="NOT granted (likely)"
-  warn "Full Disk Access for Terminal looks missing. Grant it, quit and reopen Terminal (the install continues)."
-fi
+[ "$FDA" = "granted" ] || warn "Full Disk Access for Terminal looks missing. Grant it, quit and reopen Terminal (the install continues)."
 
 # === 3) Software ===========================================================
 if [ -x /opt/homebrew/bin/brew ]; then BREW=/opt/homebrew/bin/brew
@@ -155,11 +153,11 @@ CFBIN="$(command -v cloudflared)"
 
 if command -v node >/dev/null 2>&1; then
   NV="$(node --version 2>/dev/null | sed 's/^v//')"
-  if ver_ge "$NV" "$NODE_MIN"; then echo "  = Node.js ${NV}"
+  if node_ok "$NV"; then echo "  = Node.js ${NV}"
   elif "$BREW" list node >/dev/null 2>&1; then
-    echo "  ... Node.js ${NV} too old, upgrading ..."
+    echo "  ... Node.js ${NV} is not supported by OpenClaw (needs 24.16+ or 26.1+), upgrading ..."
     "$BREW" upgrade node >/dev/null 2>&1 || warn "Node.js upgrade failed."
-  else warn "Node.js ${NV} is older than ${NODE_MIN} and not from Homebrew. OpenClaw may not install."
+  else warn "Node.js ${NV} is not supported by OpenClaw (needs 24.16+ or 26.1+) and is not from Homebrew. OpenClaw may not install."
   fi
 else
   echo "  ... installing Node.js ..."
@@ -237,6 +235,7 @@ for d in /Library/LaunchDaemons /Library/LaunchAgents "$HOME/Library/LaunchAgent
     [ -f "$p" ] || continue
     b="$(basename "$p" .plist)"
     case "$b" in com.blackceo.rescue-*|com.cloudflare.cloudflared|com.clawd.tunnel-*|com.zhc.tunnel-*) continue;; esac
+    if [ "$b" = "com.cloudflare.command-center" ]; then echo "  OURS: ${b} (Command Center tunnel from onboarding). Not touching it."; continue; fi
     if sudo grep -q cloudflared "$p" 2>/dev/null; then TRACK="B"; echo "  CLIENT-OWNED: ${d}/${b}. Not touching it."; fi
   done
 done
@@ -317,7 +316,7 @@ echo "$RECENT" | grep -i "Registered tunnel connection" | tail -4
 
 echo
 echo "=================================================="
-echo " SUMMARY  (rescue-install v3.0)   send this to your agent"
+echo " SUMMARY  (rescue-install v3.1)   send this to your agent"
 echo "   RESULT:          ${RESULT}"
 echo "   Connector label: ${LABEL}"
 echo "   Tunnel id:       ${NEW_T}"
